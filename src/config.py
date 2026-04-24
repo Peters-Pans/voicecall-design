@@ -4,8 +4,9 @@
 所有配置通过环境变量或 .env 文件注入。
 """
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Optional
 
 from pydantic_settings import BaseSettings
 
@@ -34,7 +35,7 @@ class Settings(BaseSettings):
 
     # STT (whisper.cpp)
     WHISPER_MODEL: str = "small"  # tiny / base / small / medium
-    WHISPER_MODEL_PATH: Optional[str] = None  # 默认使用缓存路径
+    WHISPER_MODEL_PATH: str | None = None  # 默认使用缓存路径
 
     # 服务器
     HOST: str = "0.0.0.0"

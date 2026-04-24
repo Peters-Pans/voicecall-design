@@ -38,12 +38,10 @@ def wav_bytes_to_pcm(
     if data.ndim > 1:
         data = data.mean(axis=1).astype(data.dtype)
 
-    # 转 int16
+    # 转 int16：float 样本按 [-1, 1] 规范，溢出时先 clip 再转，避免 int16 wrap-around
     if data.dtype != np.int16:
-        if data.dtype == np.float32:
-            data = (data * 32767).astype(np.int16)
-        elif data.dtype == np.float64:
-            data = (data * 32767).astype(np.int16)
+        if data.dtype in (np.float32, np.float64):
+            data = np.clip(data * 32767, -32768, 32767).astype(np.int16)
         else:
             data = data.astype(np.int16)
 

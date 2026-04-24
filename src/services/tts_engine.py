@@ -11,12 +11,13 @@
 上层若要「伪流式」需按句切分后并行调用。
 """
 
+from __future__ import annotations
+
 import asyncio
 import base64
 import logging
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 import httpx
 import numpy as np
@@ -41,7 +42,7 @@ _STYLE_TAG_ALLOWED = re.compile(
 )
 
 
-def _validate_style_tags(style_tags: Optional[str]) -> Optional[str]:
+def _validate_style_tags(style_tags: str | None) -> str | None:
     if style_tags is None:
         return None
     stripped = style_tags.strip()
@@ -75,7 +76,7 @@ class XiaomiTTSEngine:
     def __init__(self, config: TTSConfig, voice_service: VoiceService):
         self.config = config
         self.voice_service = voice_service
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -93,7 +94,7 @@ class XiaomiTTSEngine:
         text: str,
         profile_id: str,
         user_id: str,
-        style_tags: Optional[str] = None,
+        style_tags: str | None = None,
     ) -> np.ndarray:
         """
         合成音频，返回 24kHz int16 mono PCM。
@@ -126,7 +127,7 @@ class XiaomiTTSEngine:
         text: str,
         profile_id: str,
         user_id: str,
-        style_tags: Optional[str] = None,
+        style_tags: str | None = None,
     ) -> bytes:
         """合成并返回原始 WAV 字节（直接供 <audio> 播放）。"""
         ref = await self.voice_service.get_reference_audio(
@@ -166,7 +167,7 @@ class XiaomiTTSEngine:
 
         client = await self._get_client()
 
-        last_exc: Optional[Exception] = None
+        last_exc: Exception | None = None
         for attempt in range(self.config.max_retries):
             try:
                 resp = await client.post(self.config.base_url, json=payload)

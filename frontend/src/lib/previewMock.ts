@@ -160,7 +160,7 @@ async function handle(
     )
   }
 
-  const voiceIdMatch = path.match(/^\/api\/voices\/(vp-[a-z0-9]+)$/)
+  const voiceIdMatch = path.match(/^\/api\/voices\/(vp-[a-z0-9]+)$/i)
   if (voiceIdMatch) {
     const id = voiceIdMatch[1]
     if (method === "DELETE") {

@@ -88,7 +88,7 @@ export default function LoginPage() {
               disabled={loading}
             />
             <p className="text-xs text-muted-foreground">
-              令牌由管理员通过 CLI 生成，仅显示一次，请妥善保存
+              令牌由管理员发放，仅显示一次，请妥善保存
             </p>
           </div>
 

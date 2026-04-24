@@ -9,11 +9,13 @@
 前端 fetch() 读 ReadableStream 解析 NDJSON 即可。
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
 import re
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
@@ -45,7 +47,7 @@ _SENTENCE_SPLIT = re.compile(r"([。！？!?；;\n]+)")
 class TTSRequest(BaseModel):
     profile_id: str
     text: str
-    style_tags: Optional[str] = None
+    style_tags: str | None = None
 
 
 def get_tts_engine(request: Request) -> XiaomiTTSEngine:

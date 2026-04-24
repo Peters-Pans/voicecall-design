@@ -12,6 +12,8 @@ WebSocket 握手协议：
   server → client (失败): close(4001)
 """
 
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import json
@@ -19,7 +21,6 @@ import logging
 import re
 import secrets
 from datetime import datetime, timedelta
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, field_validator
@@ -53,7 +54,7 @@ class UserResponse(BaseModel):
 
 async def get_user_from_token(
     token: str,
-) -> Optional[User]:
+) -> User | None:
     """根据 token 查找用户。"""
     token_hash = hashlib.sha256(token.encode()).hexdigest()
 

@@ -2,6 +2,8 @@
 音色档案管理 — 磁盘存原始音频 + LRU 缓存 base64 + SQLite 元数据。
 """
 
+from __future__ import annotations
+
 import asyncio
 import base64
 import logging
@@ -9,7 +11,6 @@ import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from cachetools import TTLCache
 from pydantic import BaseModel
@@ -26,7 +27,7 @@ class VoiceProfileResponse(BaseModel):
     user_id: str
     audio_name: str
     audio_format: str
-    duration_sec: Optional[float] = None
+    duration_sec: float | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -125,7 +126,7 @@ class VoiceService:
 
     async def get_reference_audio(
         self, profile_id: str, user_id: str
-    ) -> Optional[tuple[str, str]]:
+    ) -> tuple[str, str] | None:
         """返回 (base64_audio, audio_format)，归属不匹配返回 None。"""
         key = _cache_key(user_id, profile_id)
 
@@ -189,7 +190,7 @@ class VoiceService:
         user_id: str,
         audio_bytes: bytes,
         audio_format: str,
-    ) -> Optional[VoiceProfileResponse]:
+    ) -> VoiceProfileResponse | None:
         if audio_format not in ("mp3", "wav"):
             raise ValueError(f"不支持的音频格式: {audio_format}")
 
@@ -218,7 +219,7 @@ class VoiceService:
 
                 # 先写临时文件 → 原子 rename，避免中途崩溃留半写文件
                 tmp_path = new_path.with_suffix(new_path.suffix + f".tmp-{uuid.uuid4().hex[:8]}")
-                backup_path: Optional[Path] = None
+                backup_path: Path | None = None
 
                 try:
                     if old_path.exists():
