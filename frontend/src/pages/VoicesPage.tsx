@@ -162,6 +162,7 @@ export default function VoicesPage() {
                 variant="outline"
                 onClick={() => setDeleting(null)}
                 disabled={removeMutation.isPending}
+                autoFocus
               >
                 取消
               </Button>

@@ -10,12 +10,16 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from config import settings
 from models.tables import init_db
-from pipeline.session import SessionManager
+from rate_limit import limiter
 from services.tts_engine import TTSConfig, XiaomiTTSEngine
 from services.voice_service import VoiceService
+
 
 logger = logging.getLogger(__name__)
 
@@ -43,19 +47,16 @@ async def lifespan(app: FastAPI):
         model=settings.XIAOMI_TTS_MODEL,
     )
     tts_engine = XiaomiTTSEngine(config=tts_config, voice_service=voice_service)
-    session_manager = SessionManager()
 
     # 注入到 app state
     app.state.voice_service = voice_service
     app.state.tts_engine = tts_engine
-    app.state.session_manager = session_manager
 
     yield
 
     # 关闭
     logger.info("🍮 系统关闭中...")
     await tts_engine.close()
-    await session_manager.end_all()
 
 
 def create_app() -> FastAPI:
@@ -64,6 +65,11 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+
+    # 限流：slowapi 中间件 + TTS 路由上的装饰器（在各 router 里通过 Depends 应用）
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_middleware(SlowAPIMiddleware)
 
     # CORS：白名单由 settings.ALLOWED_ORIGINS 控制（逗号分隔），生产环境务必填实际域名。
     # 同源部署（前端 dist 由后端托管）时其实不触发 CORS；此处只为开发环境前后端分离或嵌入第三方场景兜底。
@@ -80,12 +86,14 @@ def create_app() -> FastAPI:
     from api.auth import router as auth_router
     from api.me import router as me_router
     from api.text_broadcast import router as broadcast_router
+    from api.turn import router as turn_router
     from api.voices import router as voices_router
 
     app.include_router(admin_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
     app.include_router(broadcast_router, prefix="/api")
     app.include_router(me_router, prefix="/api")
+    app.include_router(turn_router, prefix="/api")
     app.include_router(voices_router, prefix="/api")
 
     # 前端静态文件 (生产模式) + SPA 回退：未匹配的路径返回 index.html，

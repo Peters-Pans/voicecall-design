@@ -14,6 +14,7 @@
 import asyncio
 import base64
 import logging
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -32,6 +33,29 @@ FORMAT_MIME = {
     "mp3": "audio/mpeg",
     "wav": "audio/wav",
 }
+
+# 风格标签字符白名单：中英文字母数字 + 空格 + 常见中文标点 + 竖线分隔符
+# 拒绝 '(' ')' / 换行 / 反斜杠 / 引号 — 避免破坏 "({style}){text}" 的语法边界
+_STYLE_TAG_ALLOWED = re.compile(
+    r"^[\w\u4e00-\u9fff\s·，、。：；！？\-_|]{0,40}$"
+)
+
+
+def _validate_style_tags(style_tags: Optional[str]) -> Optional[str]:
+    if style_tags is None:
+        return None
+    stripped = style_tags.strip()
+    if not stripped:
+        return None
+    if not _STYLE_TAG_ALLOWED.fullmatch(stripped):
+        raise ValueError("style_tags 含非法字符或超长")
+    return stripped
+
+
+def _validate_wav_magic(data: bytes) -> None:
+    """上游返回音频前做最基本的 RIFF/WAVE 校验，避免把错误包装成 WAV 下发。"""
+    if len(data) < 12 or data[:4] != b"RIFF" or data[8:12] != b"WAVE":
+        raise ValueError("上游返回非 WAV 数据")
 
 
 @dataclass
@@ -91,7 +115,8 @@ class XiaomiTTSEngine:
         if not mime:
             raise ValueError(f"不支持的参考音频格式: {audio_format}")
 
-        content = f"({style_tags}){text}" if style_tags else text
+        safe_tags = _validate_style_tags(style_tags)
+        content = f"({safe_tags}){text}" if safe_tags else text
 
         audio_b64 = await self._call_api(content, ref_b64, mime)
         return self._decode(audio_b64)
@@ -115,10 +140,13 @@ class XiaomiTTSEngine:
         if not mime:
             raise ValueError(f"不支持的参考音频格式: {audio_format}")
 
-        content = f"({style_tags}){text}" if style_tags else text
+        safe_tags = _validate_style_tags(style_tags)
+        content = f"({safe_tags}){text}" if safe_tags else text
 
         audio_b64 = await self._call_api(content, ref_b64, mime)
-        return base64.b64decode(audio_b64)
+        wav_bytes = base64.b64decode(audio_b64)
+        _validate_wav_magic(wav_bytes)
+        return wav_bytes
 
     async def _call_api(self, text: str, ref_audio_b64: str, ref_mime: str) -> str:
         """调用小米 TTS API，返回 Base64 编码的音频数据。"""
@@ -144,6 +172,18 @@ class XiaomiTTSEngine:
                 resp = await client.post(self.config.base_url, json=payload)
                 resp.raise_for_status()
                 data = resp.json()
+
+                # 上游偶见 HTTP 200 + 业务错误：{"error": {"code": "xxx", "message": "..."}}
+                # 区分限流类（可重试）与格式类（直接拒绝）
+                if isinstance(data, dict) and data.get("error"):
+                    err_obj = data["error"]
+                    err_code = err_obj.get("code", "") if isinstance(err_obj, dict) else ""
+                    logger.warning(f"TTS 业务错误 (200 body): code={err_code} data={str(data)[:300]}")
+                    if "rate" in str(err_code).lower() or "limit" in str(err_code).lower():
+                        if attempt < self.config.max_retries - 1:
+                            await asyncio.sleep(self.config.base_delay * (2 ** attempt))
+                            continue
+                    raise ValueError("TTS API 业务错误")
 
                 try:
                     audio_b64 = data["choices"][0]["message"]["audio"]["data"]

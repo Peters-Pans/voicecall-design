@@ -167,7 +167,11 @@ export const ttsAPI = {
     text: string,
     style_tags?: string,
     signal?: AbortSignal,
-  ): AsyncGenerator<TTSChunk | { done: true; total: number } | { error: string }> {
+  ): AsyncGenerator<
+    | TTSChunk
+    | { done: true; ok?: boolean; total: number; error?: string }
+    | { error: string; seq?: number }
+  > {
     const res = await fetch("/api/tts/stream", {
       method: "POST",
       signal,

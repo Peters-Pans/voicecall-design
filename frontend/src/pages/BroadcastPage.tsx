@@ -54,17 +54,20 @@ export default function BroadcastPage() {
   const [doneCount, setDoneCount] = useState(0)
   const audioRef = useRef<HTMLAudioElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+  // 跟踪已 createObjectURL 的 blob，unmount 时统一 revoke，避免内存泄漏
+  const liveUrlsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     if (!profileId && voices.length > 0) setProfileId(voices[0].profile_id)
   }, [voices, profileId])
 
   useEffect(() => {
+    const urls = liveUrlsRef.current
     return () => {
       abortRef.current?.abort()
-      segments.forEach((s) => URL.revokeObjectURL(s.url))
+      urls.forEach((u) => URL.revokeObjectURL(u))
+      urls.clear()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const isLong = text.trim().length > SHORT_LIMIT
@@ -73,8 +76,14 @@ export default function BroadcastPage() {
     [voices, profileId],
   )
 
+  function registerUrl(url: string) {
+    liveUrlsRef.current.add(url)
+    return url
+  }
+
   function clearSegments() {
-    segments.forEach((s) => URL.revokeObjectURL(s.url))
+    liveUrlsRef.current.forEach((u) => URL.revokeObjectURL(u))
+    liveUrlsRef.current.clear()
     setSegments([])
     setDoneCount(0)
   }
@@ -92,7 +101,7 @@ export default function BroadcastPage() {
         text.trim(),
         composeStyleTags(styleSelections, styleExtra) || undefined,
       )
-      const url = URL.createObjectURL(blob)
+      const url = registerUrl(URL.createObjectURL(blob))
       setSegments([{ seq: 0, url }])
       setDoneCount(1)
       queueMicrotask(() => audioRef.current?.play().catch(() => {}))
@@ -121,16 +130,22 @@ export default function BroadcastPage() {
       )
       let firstPlayed = false
       for await (const evt of iter) {
+        if ("done" in evt) {
+          if ((evt as { ok?: boolean }).ok === false) {
+            toast.error(
+              (evt as { error?: string }).error ?? "部分段合成失败",
+            )
+          } else {
+            toast.success(`合成完成：${evt.total} 段`)
+          }
+          break
+        }
         if ("error" in evt) {
           toast.error(evt.error)
           break
         }
-        if ("done" in evt) {
-          toast.success(`合成完成：${evt.total} 段`)
-          break
-        }
-        const blob = base64ToBlob(evt.audio, "audio/wav")
-        const url = URL.createObjectURL(blob)
+        const blob = await base64ToBlob(evt.audio, "audio/wav")
+        const url = registerUrl(URL.createObjectURL(blob))
         setSegments((prev) => [...prev, { seq: evt.seq, url }])
         setDoneCount((c) => c + 1)
         if (!firstPlayed) {
@@ -402,10 +417,8 @@ export default function BroadcastPage() {
   )
 }
 
-function base64ToBlob(b64: string, mime: string): Blob {
-  const bin = atob(b64)
-  const buf = new ArrayBuffer(bin.length)
-  const view = new Uint8Array(buf)
-  for (let i = 0; i < bin.length; i++) view[i] = bin.charCodeAt(i)
-  return new Blob([buf], { type: mime })
+async function base64ToBlob(b64: string, mime: string): Promise<Blob> {
+  // fetch data: URL 比手写 atob+Uint8Array 快，零 JS GC 压力
+  const res = await fetch(`data:${mime};base64,${b64}`)
+  return await res.blob()
 }

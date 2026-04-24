@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from api.auth import authenticate_request
 from models.tables import User
+from rate_limit import limiter
 from services.tts_engine import XiaomiTTSEngine
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,9 @@ MAX_CHARS_PER_CHUNK = 500
 
 # 小米输出采样率
 OUTPUT_SAMPLE_RATE = 24000
+
+# 单个长文本合成请求的并发上限，既避免上游配额耗尽也保护下游解码端
+STREAM_CONCURRENCY = 5
 
 # 句子分隔符：中文/英文标点 + 段落
 _SENTENCE_SPLIT = re.compile(r"([。！？!?；;\n]+)")
@@ -83,7 +87,9 @@ def _split_text(text: str, max_chars: int = MAX_CHARS_PER_CHUNK) -> list[str]:
 
 
 @router.post("")
+@limiter.limit("10/minute")
 async def synthesize_once(
+    request: Request,
     payload: TTSRequest,
     user: User = Depends(authenticate_request),
     tts_engine: XiaomiTTSEngine = Depends(get_tts_engine),
@@ -120,7 +126,9 @@ async def synthesize_once(
 
 
 @router.post("/stream")
+@limiter.limit("10/minute")
 async def synthesize_stream(
+    request: Request,
     payload: TTSRequest,
     user: User = Depends(authenticate_request),
     tts_engine: XiaomiTTSEngine = Depends(get_tts_engine),
@@ -141,44 +149,87 @@ async def synthesize_stream(
     if not chunks:
         raise HTTPException(status_code=400, detail="切分后无有效文本")
 
-    async def _generate() -> AsyncIterator[bytes]:
-        import base64
-
-        for seq, chunk in enumerate(chunks):
+    async def _synth_one(sem: asyncio.Semaphore, seq: int, chunk: str) -> tuple[int, bytes | None, str | None]:
+        async with sem:
             try:
-                wav_bytes = await tts_engine.synthesize_bytes(
+                wav = await tts_engine.synthesize_bytes(
                     text=chunk,
                     profile_id=payload.profile_id,
                     user_id=user.user_id,
                     style_tags=payload.style_tags,
                 )
-            except ValueError as e:
-                msg = str(e) if "音色" in str(e) else "TTS 合成失败"
-                yield (
-                    json.dumps({"error": msg, "seq": seq}, ensure_ascii=False) + "\n"
-                ).encode("utf-8")
-                return
+                return seq, wav, None
             except asyncio.CancelledError:
                 raise
+            except ValueError as e:
+                err = str(e) if "音色" in str(e) else "TTS 合成失败"
+                return seq, None, err
             except Exception:
                 logger.exception(f"[{user.user_id}] 分段 {seq} 合成失败")
-                yield (
-                    json.dumps({"error": "TTS 合成失败", "seq": seq}, ensure_ascii=False) + "\n"
-                ).encode("utf-8")
-                return
+                return seq, None, "TTS 合成失败"
 
-            line = json.dumps(
-                {
-                    "seq": seq,
-                    "audio": base64.b64encode(wav_bytes).decode("ascii"),
-                    "format": "wav",
-                    "sample_rate": OUTPUT_SAMPLE_RATE,
-                },
+    async def _generate() -> AsyncIterator[bytes]:
+        import base64
+
+        total = len(chunks)
+        sem = asyncio.Semaphore(STREAM_CONCURRENCY)
+        tasks = {
+            seq: asyncio.create_task(_synth_one(sem, seq, chunk))
+            for seq, chunk in enumerate(chunks)
+        }
+        pending_results: dict[int, tuple[bytes | None, str | None]] = {}
+        next_seq = 0
+        errored = False
+        err_msg: str | None = None
+
+        try:
+            for coro in asyncio.as_completed(list(tasks.values())):
+                seq, wav, err = await coro
+                pending_results[seq] = (wav, err)
+                # 按 seq 顺序尽可能多地 flush
+                while next_seq in pending_results:
+                    got_wav, got_err = pending_results.pop(next_seq)
+                    if got_err is not None:
+                        errored = True
+                        err_msg = got_err
+                        yield (
+                            json.dumps(
+                                {"error": got_err, "seq": next_seq},
+                                ensure_ascii=False,
+                            )
+                            + "\n"
+                        ).encode("utf-8")
+                        break
+                    assert got_wav is not None
+                    line = json.dumps(
+                        {
+                            "seq": next_seq,
+                            "audio": base64.b64encode(got_wav).decode("ascii"),
+                            "format": "wav",
+                            "sample_rate": OUTPUT_SAMPLE_RATE,
+                        },
+                        ensure_ascii=False,
+                    )
+                    yield (line + "\n").encode("utf-8")
+                    next_seq += 1
+
+                if errored:
+                    break
+        finally:
+            for t in tasks.values():
+                if not t.done():
+                    t.cancel()
+            # 吃掉取消异常
+            await asyncio.gather(*tasks.values(), return_exceptions=True)
+
+        # 无论成功失败都 yield done 帧，供前端统一收口
+        yield (
+            json.dumps(
+                {"done": True, "ok": not errored, "total": total, "error": err_msg},
                 ensure_ascii=False,
             )
-            yield (line + "\n").encode("utf-8")
-
-        yield (json.dumps({"done": True, "total": len(chunks)}) + "\n").encode("utf-8")
+            + "\n"
+        ).encode("utf-8")
 
     return StreamingResponse(
         _generate(),

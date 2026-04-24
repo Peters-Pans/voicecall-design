@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { NavLink, Outlet, useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
@@ -31,12 +31,21 @@ type NavItem = {
   label: string
   icon: typeof Waves
   badge?: string
+  disabled?: boolean
+  disabledHint?: string
 }
 
 const BASE_NAV_ITEMS: NavItem[] = [
   { to: "/voices", label: "音色管理", icon: Waves },
   { to: "/broadcast", label: "文本播报", icon: Radio },
-  { to: "/call", label: "语音通话", icon: Mic2, badge: "Phase 4" },
+  {
+    to: "/call",
+    label: "语音通话",
+    icon: Mic2,
+    badge: "即将上线",
+    disabled: true,
+    disabledHint: "Phase 4 路线图：WebRTC + Pipecat 接入完成后启用",
+  },
 ]
 
 const ADMIN_NAV_ITEM: NavItem = {
@@ -161,6 +170,27 @@ function NavItemLink({
   onNavigate?: () => void
 }) {
   const Icon = item.icon
+
+  if (item.disabled) {
+    return (
+      <div
+        aria-disabled="true"
+        title={item.disabledHint}
+        className="group flex cursor-not-allowed items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground/60"
+      >
+        <span className="flex items-center gap-2">
+          <Icon className="h-4 w-4" />
+          {item.label}
+        </span>
+        {item.badge ? (
+          <span className="rounded-full border px-2 py-0.5 text-[10px] font-normal tracking-wide">
+            {item.badge}
+          </span>
+        ) : null}
+      </div>
+    )
+  }
+
   return (
     <NavLink
       to={item.to}
@@ -194,6 +224,49 @@ function MobileDrawer({
   items: NavItem[]
   onClose: () => void
 }) {
+  const firstFocusRef = useRef<HTMLButtonElement>(null)
+  const asideRef = useRef<HTMLElement>(null)
+
+  // 打开时锁 body 滚动；关闭恢复
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [])
+
+  // 挂载后把焦点移进抽屉；Esc 关闭；Tab 在抽屉内循环
+  useEffect(() => {
+    firstFocusRef.current?.focus()
+
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault()
+        onClose()
+        return
+      }
+      if (e.key !== "Tab") return
+      const root = asideRef.current
+      if (!root) return
+      const focusables = root.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusables.length === 0) return
+      const first = focusables[0]
+      const last = focusables[focusables.length - 1]
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener("keydown", handleKey)
+    return () => document.removeEventListener("keydown", handleKey)
+  }, [onClose])
+
   return (
     <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true">
       <button
@@ -202,7 +275,10 @@ function MobileDrawer({
         className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in-0"
         onClick={onClose}
       />
-      <aside className="absolute left-0 top-0 flex h-full w-72 max-w-[80vw] flex-col border-r bg-background shadow-xl animate-in slide-in-from-left duration-200">
+      <aside
+        ref={asideRef}
+        className="absolute left-0 top-0 flex h-full w-72 max-w-[80vw] flex-col border-r bg-background shadow-xl animate-in slide-in-from-left duration-200"
+      >
         <div className="flex h-16 items-center justify-between gap-2 border-b px-4">
           <div className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
@@ -213,6 +289,7 @@ function MobileDrawer({
             </span>
           </div>
           <Button
+            ref={firstFocusRef}
             variant="ghost"
             size="icon"
             aria-label="关闭导航"

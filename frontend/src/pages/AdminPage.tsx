@@ -331,6 +331,7 @@ export default function AdminPage() {
                 variant="outline"
                 onClick={() => setDeleteUser(null)}
                 disabled={deleteMut.isPending}
+                autoFocus
               >
                 取消
               </Button>

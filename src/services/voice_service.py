@@ -41,7 +41,9 @@ class VoiceService:
     def __init__(
         self,
         data_dir: Path = Path("data/users"),
-        cache_maxsize: int = 32,
+        # 参考音频 base64 后体积 ≈ 原文件 1.33 倍，单条最多 13MB；32 条即 ~400MB 驻留
+        # 实际用法只有少数活跃音色，缩至 8 节省内存
+        cache_maxsize: int = 8,
         cache_ttl: int = 3600,
     ):
         self.data_dir = data_dir.resolve()

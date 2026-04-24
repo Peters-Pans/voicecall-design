@@ -7,7 +7,6 @@
 
 import logging
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, field_validator
@@ -59,7 +58,7 @@ class AdminTokenReset(BaseModel):
 
 
 class AdminUpdatePayload(BaseModel):
-    is_admin: Optional[bool] = None
+    is_admin: bool
 
 
 async def require_admin(user: User = Depends(authenticate_request)) -> User:
@@ -146,12 +145,11 @@ async def update_user(
         if not target:
             raise HTTPException(status_code=404, detail="用户不存在")
 
-        if payload.is_admin is not None:
-            if target.user_id == admin.user_id and not payload.is_admin:
-                raise HTTPException(
-                    status_code=400, detail="不能撤销自己的管理员权限"
-                )
-            target.is_admin = payload.is_admin
+        if target.user_id == admin.user_id and not payload.is_admin:
+            raise HTTPException(
+                status_code=400, detail="不能撤销自己的管理员权限"
+            )
+        target.is_admin = payload.is_admin
 
         await session.commit()
         await session.refresh(target)
