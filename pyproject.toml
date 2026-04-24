@@ -1,0 +1,42 @@
+[project]
+name = "voicecall"
+version = "0.1.0"
+description = "音色克隆语音通话系统"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "sqlalchemy[asyncio]>=2.0",
+    "aiosqlite>=0.20.0",
+    "httpx>=0.27.0",
+    "numpy>=2.0",
+    "scipy>=1.14.0",
+    "aiortc>=1.9.0",
+    "av>=12.0",
+    "cachetools>=5.5.0",
+    "python-multipart>=0.0.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.8.0",
+]
+stt = [
+    "faster-whisper>=1.1.0",
+]
+# Phase 4 语音通话管道依赖（按需安装，避免文本播报阶段装一堆重依赖）
+call = [
+    "pipecat-ai[small-webrtc,openai,whisper,silero]>=0.0.47",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

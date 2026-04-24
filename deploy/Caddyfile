@@ -1,0 +1,25 @@
+# 部署示例：把 voice.example.com 解析到本机，Caddy 自动申请 Let's Encrypt 证书
+# 启动：caddy run --config /path/to/Caddyfile
+#
+# 反代到 FastAPI（默认 8000）。WebRTC 不走 Caddy（ICE/SRTP 直连 coturn + 应用端口），
+# 这里仅代理 HTTP API、NDJSON 流、静态资源。
+
+voice.example.com {
+    encode zstd gzip
+
+    # NDJSON 流式 / SSE 禁用缓冲
+    @stream path /api/tts/stream
+    header @stream X-Accel-Buffering no
+
+    reverse_proxy localhost:8000 {
+        flush_interval -1
+        transport http {
+            read_timeout 300s
+        }
+    }
+
+    log {
+        output file /var/log/caddy/voicecall.log
+        format console
+    }
+}
