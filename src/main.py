@@ -77,11 +77,15 @@ def create_app() -> FastAPI:
 
     # 路由
     from api.admin import router as admin_router
+    from api.auth import router as auth_router
+    from api.me import router as me_router
     from api.text_broadcast import router as broadcast_router
     from api.voices import router as voices_router
 
     app.include_router(admin_router, prefix="/api")
+    app.include_router(auth_router, prefix="/api")
     app.include_router(broadcast_router, prefix="/api")
+    app.include_router(me_router, prefix="/api")
     app.include_router(voices_router, prefix="/api")
 
     # 前端静态文件 (生产模式) + SPA 回退：未匹配的路径返回 index.html，
@@ -97,9 +101,12 @@ def create_app() -> FastAPI:
             )
         index_file = frontend_dist / "index.html"
 
+        # 不应走 SPA 回退的前缀：API、WebSocket、静态 assets、已 mount 的子资源
+        NON_SPA_PREFIXES = ("api/", "ws/", "assets/")
+
         @app.get("/{full_path:path}", include_in_schema=False)
         async def spa_fallback(full_path: str):
-            if full_path.startswith("api/"):
+            if any(full_path.startswith(p) for p in NON_SPA_PREFIXES):
                 raise HTTPException(status_code=404)
             candidate = frontend_dist / full_path
             if full_path and candidate.is_file():

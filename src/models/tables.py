@@ -17,6 +17,7 @@ class User(Base):
     user_id = Column(String(64), primary_key=True)
     username = Column(String(64), nullable=False, unique=True)
     token_hash = Column(String(64), unique=True, nullable=False, index=True)
+    token_created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     is_admin = Column(Boolean, nullable=False, default=False, server_default="0")
     created_at = Column(DateTime, default=datetime.utcnow)
 

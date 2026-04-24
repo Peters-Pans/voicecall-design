@@ -7,6 +7,22 @@
 voice.example.com {
     encode zstd gzip
 
+    # 安全头（所有响应生效）
+    header {
+        # 强制 HTTPS 1 年，含子域；首次上线确认无误后再 preload
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        # 禁止被 iframe 嵌入
+        X-Frame-Options "DENY"
+        # 浏览器 MIME 嗅探
+        X-Content-Type-Options "nosniff"
+        # 引用来源：跨站只发 origin，同站完整路径
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # CSP：SPA 只加载自身资源 + WSS 同源 + data: URI（音频 blob）
+        Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob: data:; connect-src 'self' wss: https:; frame-ancestors 'none'"
+        # 隐藏反代身份
+        -Server
+    }
+
     # NDJSON 流式 / SSE 禁用缓冲
     @stream path /api/tts/stream
     header @stream X-Accel-Buffering no

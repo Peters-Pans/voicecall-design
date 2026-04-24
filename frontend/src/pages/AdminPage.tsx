@@ -64,6 +64,7 @@ export default function AdminPage() {
   const [newUser, setNewUser] = useState<{ username: string; token: string } | null>(
     null,
   )
+  const [resetConfirm, setResetConfirm] = useState<AdminUser | null>(null)
   const [resetUser, setResetUser] = useState<AdminUser | null>(null)
   const [resetToken, setResetToken] = useState<string | null>(null)
   const [deleteUser, setDeleteUser] = useState<AdminUser | null>(null)
@@ -201,11 +202,7 @@ export default function AdminPage() {
                         onToggleAdmin={(next) =>
                           roleMut.mutate({ id: u.user_id, admin: next })
                         }
-                        onReset={() => {
-                          setResetUser(u)
-                          setResetToken(null)
-                          resetMut.mutate(u.user_id)
-                        }}
+                        onReset={() => setResetConfirm(u)}
                         onDelete={() => setDeleteUser(u)}
                       />
                     </td>
@@ -292,6 +289,26 @@ export default function AdminPage() {
             onClose={() => {
               setResetUser(null)
               setResetToken(null)
+            }}
+          />
+        ) : null}
+      </Dialog>
+
+      <Dialog
+        open={!!resetConfirm}
+        onOpenChange={(o) => !o && setResetConfirm(null)}
+      >
+        {resetConfirm ? (
+          <ResetTokenConfirmDialog
+            user={resetConfirm}
+            pending={resetMut.isPending}
+            onCancel={() => setResetConfirm(null)}
+            onConfirm={() => {
+              const target = resetConfirm
+              setResetConfirm(null)
+              setResetUser(target)
+              setResetToken(null)
+              resetMut.mutate(target.user_id)
             }}
           />
         ) : null}
@@ -459,6 +476,57 @@ function CreateUserDialog({
         >
           <Plus className="h-4 w-4" />
           {mut.isPending ? "创建中..." : "创建"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  )
+}
+
+function ResetTokenConfirmDialog({
+  user,
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  user: AdminUser
+  pending: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  const [input, setInput] = useState("")
+  const matches = input.trim() === user.username
+
+  return (
+    <DialogContent className="sm:max-w-md">
+      <DialogHeader>
+        <DialogTitle>重置 {user.username} 的访问令牌？</DialogTitle>
+        <DialogDescription>
+          重置后该用户当前所有已登录会话立即失效，需重新登录。旧令牌无法恢复。
+          <br />
+          输入用户名 <code className="rounded bg-muted px-1">{user.username}</code> 以确认：
+        </DialogDescription>
+      </DialogHeader>
+      <div className="space-y-2">
+        <Label htmlFor="reset-confirm-username">用户名</Label>
+        <Input
+          id="reset-confirm-username"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          autoComplete="off"
+          placeholder={user.username}
+          disabled={pending}
+        />
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={onCancel} disabled={pending} autoFocus>
+          取消
+        </Button>
+        <Button
+          variant="destructive"
+          onClick={onConfirm}
+          disabled={!matches || pending}
+        >
+          {pending ? "重置中..." : "确认重置"}
         </Button>
       </DialogFooter>
     </DialogContent>

@@ -1,10 +1,17 @@
 """
 CLI：创建新用户并打印 access token（token 只显示一次）。
 
-用法：
+用法（必须在项目根目录执行）：
   cd voicecall-design
-  python scripts/create_user.py <username>            # 普通用户
-  python scripts/create_user.py --admin <username>    # 管理员（可访问 /admin）
+  PYTHONPATH=src python scripts/create_user.py <username>          # 普通用户
+  PYTHONPATH=src python scripts/create_user.py --admin <username>  # 管理员
+
+或使用 uv（推荐）：
+  uv run --with-editable . python scripts/create_user.py ...
+
+如果提示 ModuleNotFoundError，确认：
+  - 当前目录是项目根（pyproject.toml 同级）
+  - 已设置 PYTHONPATH=src 或通过 uv run 启动
 """
 
 import argparse
@@ -12,16 +19,11 @@ import asyncio
 import hashlib
 import re
 import secrets
-import sys
-from pathlib import Path
+from datetime import datetime
 
-# 允许脚本直接引用 src/ 下的模块
-SRC = Path(__file__).resolve().parent.parent / "src"
-sys.path.insert(0, str(SRC))
-
-from models.database import engine, get_async_session, init_db  # noqa: E402
-from models.tables import User  # noqa: E402
-from sqlalchemy import select  # noqa: E402
+from models.database import engine, get_async_session, init_db
+from models.tables import User
+from sqlalchemy import select
 
 USERNAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,32}$")
 
@@ -47,6 +49,7 @@ async def create_user(username: str, is_admin: bool = False) -> tuple[str, str]:
                 user_id=user_id,
                 username=username,
                 token_hash=token_hash,
+                token_created_at=datetime.utcnow(),
                 is_admin=is_admin,
             )
         )

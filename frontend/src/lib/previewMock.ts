@@ -126,7 +126,7 @@ async function handle(
 ): Promise<Response | null> {
   const path = url.pathname
 
-  if (path === "/api/admin/me" && method === "GET") {
+  if (path === "/api/me" && method === "GET") {
     return delay(
       json({
         user_id: "u-preview-demo",
@@ -280,6 +280,15 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
 
 /** 在 main.tsx 最前面调用 */
 export function installPreviewMode() {
+  // 双保险：host 白名单（localhost / 127.* / *preview* 子域）。生产域名不允许激活
+  const host = window.location.hostname
+  const allowed =
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host.endsWith(".localhost") ||
+    /preview/i.test(host)
+  if (!allowed) return false
+
   const params = new URLSearchParams(window.location.search)
   const preview = params.get("preview")
   if (!preview) return false

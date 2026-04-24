@@ -9,7 +9,9 @@
   DELETE /api/voices/{id}    — 删除音色
 """
 
+import io
 import logging
+import wave
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
@@ -45,10 +47,37 @@ def _infer_format(content_type: str) -> str:
     return fmt
 
 
-async def _read_upload(file: UploadFile) -> bytes:
+def _validate_wav(content: bytes) -> None:
+    """用 wave 模块做一次完整解析，同时检查常见坏样本（非 PCM、非法头等）。"""
+    try:
+        with wave.open(io.BytesIO(content), "rb") as wf:
+            if wf.getnframes() <= 0:
+                raise HTTPException(status_code=400, detail="WAV 文件为空或无音频帧")
+    except wave.Error as e:
+        raise HTTPException(status_code=400, detail=f"无效的 WAV 文件: {e}")
+
+
+def _validate_mp3(content: bytes) -> None:
+    """MP3 magic 检查：帧同步 0xFFE? 或 ID3 头。"""
+    if len(content) < 4:
+        raise HTTPException(status_code=400, detail="MP3 文件过短")
+    if content[:3] == b"ID3":
+        return
+    if content[0] == 0xFF and (content[1] & 0xE0) == 0xE0:
+        return
+    raise HTTPException(status_code=400, detail="无效的 MP3 文件")
+
+
+async def _read_upload(file: UploadFile, audio_format: str) -> bytes:
     content = await file.read()
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=400, detail="文件大小不能超过 10MB")
+    if not content:
+        raise HTTPException(status_code=400, detail="空文件")
+    if audio_format == "wav":
+        _validate_wav(content)
+    elif audio_format == "mp3":
+        _validate_mp3(content)
     return content
 
 
@@ -61,7 +90,7 @@ async def create_voice(
 ):
     """上传参考音频，创建音色档案。"""
     audio_format = _infer_format(file.content_type or "")
-    content = await _read_upload(file)
+    content = await _read_upload(file, audio_format)
 
     profile = await voice_service.create_profile(
         user_id=user.user_id,
@@ -109,7 +138,7 @@ async def update_voice(
 ):
     """更新音色档案 (上传新参考音频)。"""
     audio_format = _infer_format(file.content_type or "")
-    content = await _read_upload(file)
+    content = await _read_upload(file, audio_format)
 
     result = await voice_service.update_profile(
         profile_id=profile_id,

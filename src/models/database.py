@@ -8,15 +8,14 @@ from typing import AsyncIterator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
-
-DATABASE_URL = "sqlite+aiosqlite:///./data/voicecall.db"
+from config import settings
 
 
 class Base(DeclarativeBase):
     pass
 
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+engine = create_async_engine(settings.resolved_database_url, echo=False)
 async_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -44,4 +43,12 @@ async def init_db() -> None:
         if "is_admin" not in existing_cols:
             await conn.execute(
                 text("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+            )
+        if "token_created_at" not in existing_cols:
+            # SQLite ALTER 加列要求默认值是常量；先加可空列，再回填 created_at（兼容历史数据）
+            await conn.execute(
+                text("ALTER TABLE users ADD COLUMN token_created_at DATETIME")
+            )
+            await conn.execute(
+                text("UPDATE users SET token_created_at = created_at WHERE token_created_at IS NULL")
             )

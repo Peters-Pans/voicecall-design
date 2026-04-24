@@ -24,7 +24,7 @@ export default function LoginPage() {
     }
     setLoading(true)
     try {
-      const res = await fetch("/api/voices", {
+      const res = await fetch("/api/me", {
         headers: { "X-Access-Token": token.trim() },
       })
       if (res.status === 401 || res.status === 403) {
@@ -33,8 +33,9 @@ export default function LoginPage() {
       if (!res.ok) {
         throw new APIError(`服务器响应异常 (HTTP ${res.status})`, res.status)
       }
-      setAuth(token.trim(), username.trim())
-      toast.success(`欢迎回来，${username.trim()}`)
+      const me = (await res.json()) as { username?: string }
+      setAuth(token.trim(), me.username ?? username.trim())
+      toast.success(`欢迎回来，${me.username ?? username.trim()}`)
       navigate("/voices", { replace: true })
     } catch (err) {
       const msg = err instanceof Error ? err.message : "登录失败"

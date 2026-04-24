@@ -12,6 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from api.auth import (
     USERNAME_PATTERN,
@@ -106,22 +107,21 @@ async def create_user_endpoint(
     token = generate_token()
     user_id = f"u-{payload.username.lower()}-{secrets.token_hex(4)}"
 
-    async with get_async_session() as session:
-        dup = await session.execute(
-            select(User).where(User.username == payload.username)
-        )
-        if dup.scalar_one_or_none():
-            raise HTTPException(status_code=409, detail="用户名已存在")
-
-        user = User(
-            user_id=user_id,
-            username=payload.username,
-            token_hash=hash_token(token),
-            is_admin=payload.is_admin,
-        )
-        session.add(user)
-        await session.commit()
-        await session.refresh(user)
+    try:
+        async with get_async_session() as session:
+            user = User(
+                user_id=user_id,
+                username=payload.username,
+                token_hash=hash_token(token),
+                token_created_at=datetime.utcnow(),
+                is_admin=payload.is_admin,
+            )
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
+    except IntegrityError:
+        # 依赖 users.username UNIQUE 约束处理并发冲突，get_async_session 已自动 rollback
+        raise HTTPException(status_code=409, detail="用户名已存在")
 
     logger.info(f"admin 创建用户: {user_id} (admin={payload.is_admin})")
     return AdminUserCreated(
@@ -183,6 +183,7 @@ async def reset_token(
 
         new_token = generate_token()
         target.token_hash = hash_token(new_token)
+        target.token_created_at = datetime.utcnow()
         await session.commit()
 
     logger.info(f"admin 重置令牌: {user_id}")
@@ -219,20 +220,3 @@ async def delete_user(
     return None
 
 
-@router.get("/me", response_model=AdminUserOut)
-async def me(user: User = Depends(authenticate_request)):
-    """当前用户信息 — 前端用来判断是否显示「管理员」入口。
-    故意挂在 /admin 下但允许所有已登录用户访问。"""
-    async with get_async_session() as session:
-        count_res = await session.execute(
-            select(VoiceProfile.profile_id).where(VoiceProfile.user_id == user.user_id)
-        )
-        voice_count = len(count_res.all())
-
-    return AdminUserOut(
-        user_id=user.user_id,
-        username=user.username,
-        is_admin=bool(user.is_admin),
-        created_at=user.created_at,
-        voice_count=voice_count,
-    )

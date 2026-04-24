@@ -18,12 +18,13 @@ import json
 import logging
 import re
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, field_validator
 
+from config import settings
 from models.database import get_async_session
 from models.tables import User
 
@@ -64,6 +65,14 @@ async def get_user_from_token(
         return result.scalar_one_or_none()
 
 
+def _token_expired(user: User) -> bool:
+    """检查 token 是否超过配置的 TTL。"""
+    created = user.token_created_at or user.created_at
+    if created is None:
+        return False
+    return datetime.utcnow() - created > timedelta(days=settings.TOKEN_TTL_DAYS)
+
+
 # ---- FastAPI 依赖注入 ----
 
 async def authenticate_request(request: Request) -> User:
@@ -75,6 +84,9 @@ async def authenticate_request(request: Request) -> User:
     user = await get_user_from_token(auth_header)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid access token")
+
+    if _token_expired(user):
+        raise HTTPException(status_code=401, detail="Token expired")
 
     return user
 
@@ -109,7 +121,7 @@ async def authenticate_websocket(websocket: WebSocket) -> User:
         raise WebSocketDisconnect(code=4001)
 
     user = await get_user_from_token(token)
-    if not user:
+    if not user or _token_expired(user):
         await websocket.close(code=4001, reason="invalid token")
         raise WebSocketDisconnect(code=4001)
 
@@ -138,12 +150,14 @@ async def create_user(username: str) -> UserResponse:
         )
     token = generate_token()
     user_id = f"u-{username.lower()}-{secrets.token_hex(4)}"
+    now = datetime.utcnow()
 
     async with get_async_session() as session:
         user = User(
             user_id=user_id,
             username=username,
             token_hash=hash_token(token),
+            token_created_at=now,
         )
         session.add(user)
         await session.commit()
@@ -154,5 +168,50 @@ async def create_user(username: str) -> UserResponse:
         user_id=user_id,
         username=username,
         token=token,
-        created_at=datetime.utcnow(),
+        created_at=now,
     )
+
+
+# ---- logout / refresh 路由 ----
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+class RefreshResponse(BaseModel):
+    token: str
+    token_created_at: datetime
+
+
+@router.post("/logout", status_code=204)
+async def logout(user: User = Depends(authenticate_request)):
+    """作废当前 token（随机写一个不可预测的 hash）。"""
+    async with get_async_session() as session:
+        from sqlalchemy import select
+
+        result = await session.execute(select(User).where(User.user_id == user.user_id))
+        target = result.scalar_one_or_none()
+        if target is None:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        target.token_hash = hash_token(secrets.token_urlsafe(32))
+        await session.commit()
+    logger.info(f"用户 logout: {user.user_id}")
+    return None
+
+
+@router.post("/refresh", response_model=RefreshResponse)
+async def refresh(user: User = Depends(authenticate_request)):
+    """用当前有效 token 换一个新 token，刷新 token_created_at。"""
+    async with get_async_session() as session:
+        from sqlalchemy import select
+
+        result = await session.execute(select(User).where(User.user_id == user.user_id))
+        target = result.scalar_one_or_none()
+        if target is None:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        new_token = generate_token()
+        now = datetime.utcnow()
+        target.token_hash = hash_token(new_token)
+        target.token_created_at = now
+        await session.commit()
+    logger.info(f"用户 refresh token: {user.user_id}")
+    return RefreshResponse(token=new_token, token_created_at=now)

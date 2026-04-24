@@ -5,10 +5,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { Toaster } from "sonner"
 
 import App from "@/App"
-import { installPreviewMode } from "@/lib/previewMock"
 import "@/index.css"
 
-installPreviewMode()
+// preview mock 只在 Vite dev 构建中注入；生产构建 tree-shake 整块移除
+if (import.meta.env.DEV) {
+  const { installPreviewMode } = await import("@/lib/previewMock")
+  installPreviewMode()
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {

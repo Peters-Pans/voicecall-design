@@ -123,7 +123,15 @@ export type AdminUser = {
 export type AdminUserCreated = AdminUser & { token: string }
 
 export const meAPI = {
-  get: () => apiJSON<AdminUser>("/api/admin/me"),
+  get: () => apiJSON<AdminUser>("/api/me"),
+}
+
+export const authAPI = {
+  logout: () => apiJSON<void>("/api/auth/logout", { method: "POST" }),
+  refresh: () =>
+    apiJSON<{ token: string; token_created_at: string }>("/api/auth/refresh", {
+      method: "POST",
+    }),
 }
 
 export const adminAPI = {
