@@ -165,7 +165,7 @@ async function handle(
     const id = voiceIdMatch[1]
     if (method === "DELETE") {
       state.voices = state.voices.filter((v) => v.profile_id !== id)
-      return delay(json({ message: "ok" }))
+      return delay(new Response(null, { status: 204 }))
     }
     if (method === "PUT") {
       return delay(json({ message: "ok", audio_format: "wav" }))

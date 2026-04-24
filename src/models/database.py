@@ -23,7 +23,11 @@ async_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_o
 @asynccontextmanager
 async def get_async_session() -> AsyncIterator[AsyncSession]:
     async with async_session_factory() as session:
-        yield session
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
 
 
 async def init_db() -> None:

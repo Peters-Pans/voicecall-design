@@ -106,10 +106,15 @@ async def synthesize_once(
             style_tags=payload.style_tags,
         )
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
+        # ValueError 来自「音色不存在」或「上游响应格式异常」，前者 404 有信息量，
+        # 后者 tts_engine 已写 log，这里不再把内部消息透传给客户端。
+        msg = str(e)
+        if "音色" in msg:
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=502, detail="TTS 合成失败")
+    except Exception:
         logger.exception(f"[{user.user_id}] TTS 合成失败")
-        raise HTTPException(status_code=500, detail=f"TTS 合成失败: {e}")
+        raise HTTPException(status_code=500, detail="TTS 合成失败")
 
     return Response(content=wav_bytes, media_type="audio/wav")
 
@@ -148,13 +153,18 @@ async def synthesize_stream(
                     style_tags=payload.style_tags,
                 )
             except ValueError as e:
-                yield (json.dumps({"error": str(e)}, ensure_ascii=False) + "\n").encode("utf-8")
+                msg = str(e) if "音色" in str(e) else "TTS 合成失败"
+                yield (
+                    json.dumps({"error": msg, "seq": seq}, ensure_ascii=False) + "\n"
+                ).encode("utf-8")
                 return
             except asyncio.CancelledError:
                 raise
-            except Exception as e:
+            except Exception:
                 logger.exception(f"[{user.user_id}] 分段 {seq} 合成失败")
-                yield (json.dumps({"error": str(e)}, ensure_ascii=False) + "\n").encode("utf-8")
+                yield (
+                    json.dumps({"error": "TTS 合成失败", "seq": seq}, ensure_ascii=False) + "\n"
+                ).encode("utf-8")
                 return
 
             line = json.dumps(

@@ -107,7 +107,7 @@ export const voicesAPI = {
     )
   },
   remove: (profile_id: string) =>
-    apiJSON<{ message: string }>(`/api/voices/${profile_id}`, {
+    apiJSON<void>(`/api/voices/${profile_id}`, {
       method: "DELETE",
     }),
 }

@@ -9,9 +9,9 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, field_validator
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from api.auth import (
     USERNAME_PATTERN,
@@ -21,6 +21,7 @@ from api.auth import (
 )
 from models.database import get_async_session
 from models.tables import User, VoiceProfile
+from services.voice_service import VoiceService
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,10 @@ async def require_admin(user: User = Depends(authenticate_request)) -> User:
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="需要管理员权限")
     return user
+
+
+def get_voice_service(request: Request) -> VoiceService:
+    return request.app.state.voice_service
 
 
 @router.get("/users", response_model=list[AdminUserOut])
@@ -188,6 +193,7 @@ async def reset_token(
 async def delete_user(
     user_id: str,
     admin: User = Depends(require_admin),
+    voice_service: VoiceService = Depends(get_voice_service),
 ):
     if user_id == admin.user_id:
         raise HTTPException(status_code=400, detail="不能删除自己")
@@ -198,15 +204,18 @@ async def delete_user(
         if not target:
             raise HTTPException(status_code=404, detail="用户不存在")
 
-        # 级联删除音色档案（物理文件清理交给 VoiceService 有需要时再做；
-        # 这里只清理 DB 引用避免外键残留）
-        await session.execute(
-            delete(VoiceProfile).where(VoiceProfile.user_id == user_id)
-        )
-        await session.delete(target)
-        await session.commit()
+    # 先清物理文件与 voice_profiles（走 VoiceService 走正确边界校验 + 锁 + 缓存清理），
+    # 再删用户行。VoiceProfile 行由 delete_profile 逐个 DELETE，目录由 delete_user_data 兜底清空。
+    deleted_count = await voice_service.delete_user_data(user_id)
 
-    logger.info(f"admin 删除用户: {user_id}")
+    async with get_async_session() as session:
+        res = await session.execute(select(User).where(User.user_id == user_id))
+        target = res.scalar_one_or_none()
+        if target is not None:
+            await session.delete(target)
+            await session.commit()
+
+    logger.info(f"admin 删除用户: {user_id}（清理 {deleted_count} 条音色及磁盘目录）")
     return None
 
 

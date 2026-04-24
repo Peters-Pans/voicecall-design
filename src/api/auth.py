@@ -3,18 +3,25 @@
 
 设计要点:
 1. 简单 token 认证，适合几个人用
-2. 通过 Header 或 Query 参数传递 token
-3. WebSocket 通过 query 参数传递 (WebSocket 不支持自定义 header)
+2. HTTP 通过 X-Access-Token header 传递
+3. WebSocket 通过建连后首帧 JSON 消息传递（不走 query，避免被反代日志/浏览器历史记录明文抓到）
+
+WebSocket 握手协议：
+  client → server: `{"type": "auth", "token": "tp-xxxxx"}`
+  server → client (成功): `{"type": "auth_ok"}`
+  server → client (失败): close(4001)
 """
 
+import asyncio
 import hashlib
+import json
 import logging
 import re
 import secrets
 from datetime import datetime
 from typing import Optional
 
-from fastapi import HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, field_validator
 
 from models.database import get_async_session
@@ -72,16 +79,41 @@ async def authenticate_request(request: Request) -> User:
     return user
 
 
-async def authenticate_websocket(
-    websocket: WebSocket,
-    token: str = Query(..., alias="token"),
-) -> User:
-    """WebSocket 认证 (从 query 参数获取 token)。"""
-    user = await get_user_from_token(token)
-    if not user:
-        await websocket.close(code=4001, reason="Invalid access token")
+WS_AUTH_TIMEOUT_SEC = 5.0
+
+
+async def authenticate_websocket(websocket: WebSocket) -> User:
+    """WebSocket 认证：accept 后等首帧 `{"type":"auth","token":"..."}`。
+
+    调用方用法：
+        await websocket.accept()
+        user = await authenticate_websocket(websocket)
+        ...业务循环...
+    """
+    try:
+        raw = await asyncio.wait_for(websocket.receive_text(), timeout=WS_AUTH_TIMEOUT_SEC)
+    except asyncio.TimeoutError:
+        await websocket.close(code=4001, reason="auth timeout")
+        raise WebSocketDisconnect(code=4001)
+    except Exception:
+        await websocket.close(code=4001, reason="auth failed")
         raise WebSocketDisconnect(code=4001)
 
+    try:
+        msg = json.loads(raw)
+        if msg.get("type") != "auth" or not isinstance(msg.get("token"), str):
+            raise ValueError
+        token = msg["token"]
+    except (json.JSONDecodeError, ValueError):
+        await websocket.close(code=4001, reason="bad auth frame")
+        raise WebSocketDisconnect(code=4001)
+
+    user = await get_user_from_token(token)
+    if not user:
+        await websocket.close(code=4001, reason="invalid token")
+        raise WebSocketDisconnect(code=4001)
+
+    await websocket.send_text(json.dumps({"type": "auth_ok"}))
     return user
 
 

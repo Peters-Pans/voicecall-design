@@ -123,7 +123,7 @@ async def update_voice(
     return {"message": "音色档案已更新", "audio_format": result.audio_format}
 
 
-@router.delete("/{profile_id}")
+@router.delete("/{profile_id}", status_code=204)
 async def delete_voice(
     profile_id: str,
     user: User = Depends(authenticate_request),
@@ -137,4 +137,4 @@ async def delete_voice(
     if not success:
         raise HTTPException(status_code=404, detail="音色档案不存在")
 
-    return {"message": "音色档案已删除"}
+    return None

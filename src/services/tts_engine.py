@@ -148,7 +148,10 @@ class XiaomiTTSEngine:
                 try:
                     audio_b64 = data["choices"][0]["message"]["audio"]["data"]
                 except (KeyError, IndexError, TypeError) as exc:
-                    raise ValueError(f"未知 API 响应格式: {data}") from exc
+                    # 不把上游 body 带进 exception message（可能含内部错误码/hint）。
+                    # 完整响应进 logger 方便排查。
+                    logger.error(f"未知 TTS API 响应格式: {str(data)[:500]}")
+                    raise ValueError("TTS API 返回格式异常") from exc
 
                 if not audio_b64:
                     raise ValueError("API 返回空音频数据")

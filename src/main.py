@@ -65,10 +65,11 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS
+    # CORS：白名单由 settings.ALLOWED_ORIGINS 控制（逗号分隔），生产环境务必填实际域名。
+    # 同源部署（前端 dist 由后端托管）时其实不触发 CORS；此处只为开发环境前后端分离或嵌入第三方场景兜底。
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
