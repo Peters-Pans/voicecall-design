@@ -31,6 +31,8 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import AudioRecorderPanel from "@/components/AudioRecorderPanel"
 import { voicesAPI, type VoiceProfile } from "@/lib/api"
 
 const MAX_BYTES = 10 * 1024 * 1024
@@ -323,6 +325,11 @@ function UploadDialog({
     else replaceMut.mutate()
   }
 
+  const filenameBase =
+    mode === "replace" && profile
+      ? profile.audio_name
+      : name.trim() || "recording"
+
   return (
     <DialogContent className="sm:max-w-md">
       <DialogHeader>
@@ -348,21 +355,38 @@ function UploadDialog({
           </div>
         ) : null}
 
-        <div className="space-y-2">
-          <Label htmlFor="voice-file">参考音频</Label>
-          <Input
-            id="voice-file"
-            type="file"
-            accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/wave"
-            disabled={pending}
-            onChange={(e) => handleFile(e.target.files?.[0])}
-          />
-          {file ? (
-            <p className="text-xs text-muted-foreground">
-              已选：{file.name} · {formatSize(file.size)}
-            </p>
-          ) : null}
-        </div>
+        <Tabs defaultValue="upload" className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="upload">上传文件</TabsTrigger>
+            <TabsTrigger value="record">直接录音</TabsTrigger>
+          </TabsList>
+          <TabsContent value="upload" className="space-y-2">
+            <Label htmlFor="voice-file">参考音频</Label>
+            <Input
+              id="voice-file"
+              type="file"
+              accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/wave"
+              disabled={pending}
+              onChange={(e) => handleFile(e.target.files?.[0])}
+            />
+          </TabsContent>
+          <TabsContent value="record">
+            <AudioRecorderPanel
+              filenameBase={filenameBase}
+              disabled={pending}
+              onConfirm={(f) => {
+                setFile(f)
+                toast.success(`录音已就绪：${f.name}`)
+              }}
+            />
+          </TabsContent>
+        </Tabs>
+
+        {file ? (
+          <p className="text-xs text-muted-foreground">
+            待提交：{file.name} · {formatSize(file.size)}
+          </p>
+        ) : null}
       </div>
 
       <DialogFooter>

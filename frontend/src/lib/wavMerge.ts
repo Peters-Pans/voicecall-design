@@ -5,6 +5,8 @@
  * 解析每段 WAV 找到 `fmt `/`data` chunk，校验格式完全一致后拼 PCM，重建 header。
  */
 
+import { encodeWavBlob } from "./wav"
+
 type ParsedWav = {
   audioFormat: number
   channels: number
@@ -64,10 +66,6 @@ function parseWav(buf: ArrayBuffer): ParsedWav {
   return { ...fmt, pcm }
 }
 
-function writeString(view: DataView, offset: number, s: string) {
-  for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i))
-}
-
 export async function mergeWavBlobs(blobs: Blob[]): Promise<Blob> {
   if (blobs.length === 0) throw new Error("无可合并的段")
   if (blobs.length === 1) return blobs[0]
@@ -90,32 +88,12 @@ export async function mergeWavBlobs(blobs: Blob[]): Promise<Blob> {
   }
 
   const totalPcm = parsed.reduce((sum, p) => sum + p.pcm.byteLength, 0)
-  const byteRate = (first.sampleRate * first.channels * first.bitsPerSample) / 8
-  const blockAlign = (first.channels * first.bitsPerSample) / 8
-  const headerSize = 44
-  const out = new ArrayBuffer(headerSize + totalPcm)
-  const view = new DataView(out)
-
-  writeString(view, 0, "RIFF")
-  view.setUint32(4, 36 + totalPcm, true)
-  writeString(view, 8, "WAVE")
-  writeString(view, 12, "fmt ")
-  view.setUint32(16, 16, true)
-  view.setUint16(20, first.audioFormat, true)
-  view.setUint16(22, first.channels, true)
-  view.setUint32(24, first.sampleRate, true)
-  view.setUint32(28, byteRate, true)
-  view.setUint16(32, blockAlign, true)
-  view.setUint16(34, first.bitsPerSample, true)
-  writeString(view, 36, "data")
-  view.setUint32(40, totalPcm, true)
-
-  const outBytes = new Uint8Array(out)
-  let cursor = headerSize
+  const merged = new Uint8Array(totalPcm)
+  let cursor = 0
   for (const p of parsed) {
-    outBytes.set(p.pcm, cursor)
+    merged.set(p.pcm, cursor)
     cursor += p.pcm.byteLength
   }
 
-  return new Blob([out], { type: "audio/wav" })
+  return encodeWavBlob(merged, first.sampleRate, first.channels, first.bitsPerSample)
 }
