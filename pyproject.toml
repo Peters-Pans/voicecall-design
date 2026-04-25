@@ -30,8 +30,9 @@ stt = [
     "faster-whisper>=1.1.0",
 ]
 # Phase 4 语音通话管道依赖（按需安装，避免文本播报阶段装一堆重依赖）
+# pipecat 1.0.0 的 small-webrtc transport 在 extras 里叫 `webrtc`，会拉 opencv-python-headless。
 call = [
-    "pipecat-ai[small-webrtc,openai,whisper,silero]>=0.0.47",
+    "pipecat-ai[webrtc,openai,whisper,silero]>=1.0.0",
 ]
 
 [build-system]
