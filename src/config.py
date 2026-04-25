@@ -69,7 +69,13 @@ class Settings(BaseSettings):
         db_path.parent.mkdir(parents=True, exist_ok=True)
         return f"sqlite+aiosqlite:///{db_path}"
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    # extra=ignore：允许 .env 里有 Settings 之外的字段（如 HF_HOME / TORCH_HOME），
+    # 否则 systemd EnvironmentFile 加任何辅助变量都会崩 startup
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",
+    }
 
 
 settings = Settings()
