@@ -17,6 +17,27 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import { APIError, callAPI, turnAPI } from "@/lib/api"
 
+const GATHERING_TIMEOUT_MS = 5000
+
+function waitForGatheringComplete(pc: RTCPeerConnection): Promise<void> {
+  if (pc.iceGatheringState === "complete") return Promise.resolve()
+  return new Promise((resolve) => {
+    const onChange = () => {
+      if (pc.iceGatheringState === "complete") {
+        pc.removeEventListener("icegatheringstatechange", onChange)
+        clearTimeout(timer)
+        resolve()
+      }
+    }
+    pc.addEventListener("icegatheringstatechange", onChange)
+    // STUN 拿不到时不要无限等；超时就用已收集到的 candidates
+    const timer = setTimeout(() => {
+      pc.removeEventListener("icegatheringstatechange", onChange)
+      resolve()
+    }, GATHERING_TIMEOUT_MS)
+  })
+}
+
 export type CallStatus =
   | "idle"
   | "requesting-mic"
@@ -146,24 +167,9 @@ export function useVoiceCall(): UseVoiceCallReturn {
           }
         }
 
-        pc.onicecandidate = async (event) => {
-          if (!event.candidate || !pcIdRef.current) return
-          const c = event.candidate
-          try {
-            await callAPI.sendIce({
-              pc_id: pcIdRef.current,
-              candidates: [
-                {
-                  candidate: c.candidate,
-                  sdp_mid: c.sdpMid ?? "",
-                  sdp_mline_index: c.sdpMLineIndex ?? 0,
-                },
-              ],
-            })
-          } catch {
-            // 后端已保证幂等，丢一次 candidate 不致命
-          }
-        }
+        // 非 trickle 模式：等候选 gather 完整再发 offer，所有 candidates 内嵌在 SDP。
+        // pipecat 的 SmallWebRTCConnection 也是非 trickle 风格（answer 一次性返回完整 SDP）。
+        // PATCH /api/call/ice 接口保留但目前不调用，留给未来 trickle 优化。
 
         pc.onconnectionstatechange = () => {
           if (endedRef.current) return
@@ -181,10 +187,21 @@ export function useVoiceCall(): UseVoiceCallReturn {
         setStatus("connecting")
         const offer = await pc.createOffer()
         await pc.setLocalDescription(offer)
+        await waitForGatheringComplete(pc)
+
+        if (endedRef.current) {
+          cleanup()
+          return
+        }
+
+        const completeOffer = pc.localDescription
+        if (!completeOffer) {
+          throw new Error("ICE 候选收集失败")
+        }
 
         const answer = await callAPI.offer({
-          sdp: offer.sdp ?? "",
-          type: offer.type,
+          sdp: completeOffer.sdp,
+          type: completeOffer.type as "offer" | "answer" | "pranswer" | "rollback",
           profile_id: profileId,
           style_tags: styleTags ?? null,
         })

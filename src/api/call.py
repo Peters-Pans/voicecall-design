@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 
+from aiortc.rtcconfiguration import RTCIceServer
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pipecat.transports.smallwebrtc.request_handler import (
     IceCandidate,
@@ -33,8 +34,18 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/call", tags=["call"])
 
+
+def _build_ice_servers() -> list[RTCIceServer]:
+    """服务端必须用 STUN 才能 gather srflx 候选；OCI 1:1 NAT 后，host 候选是私网 IP，
+    浏览器根本连不到。TURN 不在这里给——服务端走 srflx 出站就够，TURN 是给客户端兜底的。"""
+    servers: list[RTCIceServer] = []
+    if settings.STUN_URL:
+        servers.append(RTCIceServer(urls=settings.STUN_URL))
+    return servers
+
+
 # 单例 handler 维护所有活跃连接；app shutdown 时需要 close()
-_handler = SmallWebRTCRequestHandler()
+_handler = SmallWebRTCRequestHandler(ice_servers=_build_ice_servers())
 
 
 class OfferIn(BaseModel):
