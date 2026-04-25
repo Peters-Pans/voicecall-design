@@ -23,6 +23,7 @@ export default function App() {
         <Route path="/voices" element={<VoicesPage />} />
         <Route path="/broadcast" element={<BroadcastPage />} />
         <Route path="/call" element={<CallPage />} />
+        <Route path="/call/:profileId" element={<CallPage />} />
         <Route path="/admin" element={<AdminPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

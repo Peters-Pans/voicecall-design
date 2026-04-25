@@ -33,8 +33,9 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str = ""
     LLM_MODEL: str = ""
 
-    # STT (whisper.cpp)
-    WHISPER_MODEL: str = "small"  # tiny / base / small / medium
+    # STT (faster-whisper)
+    # Oracle ARM 1 vCPU 上 small 会卡顿，tiny 约 40MB int8 + 实时 4-5x；升配后再调大。
+    WHISPER_MODEL: str = "tiny"  # tiny / base / small / medium
     WHISPER_MODEL_PATH: str | None = None  # 默认使用缓存路径
 
     # 服务器

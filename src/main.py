@@ -57,6 +57,8 @@ async def lifespan(app: FastAPI):
     # 关闭
     logger.info("🍮 系统关闭中...")
     await tts_engine.close()
+    from api.call import close_handler as close_call_handler
+    await close_call_handler()
 
 
 def create_app() -> FastAPI:
@@ -84,6 +86,7 @@ def create_app() -> FastAPI:
     # 路由
     from api.admin import router as admin_router
     from api.auth import router as auth_router
+    from api.call import router as call_router
     from api.me import router as me_router
     from api.text_broadcast import router as broadcast_router
     from api.turn import router as turn_router
@@ -92,6 +95,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
     app.include_router(broadcast_router, prefix="/api")
+    app.include_router(call_router, prefix="/api")
     app.include_router(me_router, prefix="/api")
     app.include_router(turn_router, prefix="/api")
     app.include_router(voices_router, prefix="/api")

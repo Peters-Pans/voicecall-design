@@ -155,6 +155,50 @@ export const adminAPI = {
     apiJSON<void>(`/api/admin/users/${user_id}`, { method: "DELETE" }),
 }
 
+export type TurnCredential = {
+  urls: string[]
+  username: string
+  credential: string
+  ttl: number
+}
+
+export const turnAPI = {
+  getCredential: () => apiJSON<TurnCredential>("/api/turn-credential"),
+}
+
+export type CallOfferPayload = {
+  sdp: string
+  type: "offer" | "answer" | "pranswer" | "rollback"
+  profile_id: string
+  style_tags?: string | null
+  pc_id?: string
+  restart_pc?: boolean
+}
+
+export type CallAnswerResponse = {
+  sdp: string
+  type: string
+  pc_id: string
+}
+
+export type CallIcePayload = {
+  candidate: RTCIceCandidateInit
+  pc_id: string
+}
+
+export const callAPI = {
+  offer: (payload: CallOfferPayload) =>
+    apiJSON<CallAnswerResponse>("/api/call/offer", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  sendIce: (payload: CallIcePayload) =>
+    apiJSON<{ status: string }>("/api/call/ice", {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+}
+
 export const ttsAPI = {
   synthesize: (profile_id: string, text: string, style_tags?: string) =>
     apiBlob("/api/tts", {

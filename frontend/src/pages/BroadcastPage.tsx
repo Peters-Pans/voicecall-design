@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Loader2, Play, Square, Waves, Zap } from "lucide-react"
+import { Download, Loader2, Play, Square, Waves, Zap } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -15,17 +15,24 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { ttsAPI, voicesAPI, type VoiceProfile } from "@/lib/api"
+import { mergeWavBlobs } from "@/lib/wavMerge"
 
 const SHORT_LIMIT = 500
 
 const STYLE_GROUPS: { label: string; options: string[] }[] = [
   { label: "语速", options: ["快速", "慢速", "极慢"] },
-  { label: "情绪", options: ["开心", "悲伤", "温柔", "严肃", "撒娇"] },
+  {
+    label: "情绪",
+    options: ["开心", "悲伤", "温柔", "严肃", "撒娇", "调侃", "愤怒", "压抑"],
+  },
+  { label: "音量", options: ["低声", "正常", "呼喊"] },
+  { label: "语气", options: ["急促", "舒缓"] },
 ]
 
 type Segment = {
   seq: number
   url: string
+  blob: Blob
 }
 
 function composeStyleTags(
@@ -102,7 +109,7 @@ export default function BroadcastPage() {
         composeStyleTags(styleSelections, styleExtra) || undefined,
       )
       const url = registerUrl(URL.createObjectURL(blob))
-      setSegments([{ seq: 0, url }])
+      setSegments([{ seq: 0, url, blob }])
       setDoneCount(1)
       queueMicrotask(() => audioRef.current?.play().catch(() => {}))
     } catch (e) {
@@ -146,7 +153,7 @@ export default function BroadcastPage() {
         }
         const blob = await base64ToBlob(evt.audio, "audio/wav")
         const url = registerUrl(URL.createObjectURL(blob))
-        setSegments((prev) => [...prev, { seq: evt.seq, url }])
+        setSegments((prev) => [...prev, { seq: evt.seq, url, blob }])
         setDoneCount((c) => c + 1)
         if (!firstPlayed) {
           firstPlayed = true
@@ -191,6 +198,37 @@ export default function BroadcastPage() {
     if (next) {
       a.src = next.url
       a.play().catch(() => {})
+    }
+  }
+
+  function buildFileName(seq: number | "merged") {
+    const name = currentProfile?.audio_name ?? "voice"
+    const safeName = name.replace(/[^\w\u4e00-\u9fff-]+/g, "_")
+    const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")
+    const suffix = seq === "merged" ? "merged" : `seg${String(seq).padStart(2, "0")}`
+    return `voice-${safeName}-${ts}-${suffix}.wav`
+  }
+
+  const [merging, setMerging] = useState(false)
+
+  async function handleDownloadMerged() {
+    if (segments.length === 0) return
+    setMerging(true)
+    try {
+      const merged = await mergeWavBlobs(segments.map((s) => s.blob))
+      const url = URL.createObjectURL(merged)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = buildFileName("merged")
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      // 给浏览器一小段时间真正发起下载后再回收
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "合并失败")
+    } finally {
+      setMerging(false)
     }
   }
 
@@ -390,24 +428,58 @@ export default function BroadcastPage() {
               src={segments[0]?.url}
               onEnded={handleEnded}
             />
+            {segments.length > 1 && !running ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleDownloadMerged}
+                disabled={merging}
+                className="w-full"
+              >
+                {merging ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    合并中
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4" />
+                    下载合并 WAV（{segments.length} 段）
+                  </>
+                )}
+              </Button>
+            ) : null}
             <div className="max-h-64 space-y-1 overflow-y-auto">
               {segments.map((s) => (
-                <button
+                <div
                   key={s.seq}
-                  type="button"
-                  onClick={() => {
-                    const a = audioRef.current
-                    if (!a) return
-                    a.src = s.url
-                    a.play().catch(() => {})
-                  }}
-                  className="flex w-full items-center justify-between rounded-md border px-3 py-1.5 text-xs hover:bg-accent"
+                  className="flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs"
                 >
-                  <span className="font-mono text-muted-foreground">
-                    #{String(s.seq).padStart(2, "0")}
-                  </span>
-                  <Play className="h-3 w-3 text-muted-foreground" />
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const a = audioRef.current
+                      if (!a) return
+                      a.src = s.url
+                      a.play().catch(() => {})
+                    }}
+                    className="flex flex-1 items-center justify-between rounded hover:text-foreground"
+                  >
+                    <span className="font-mono text-muted-foreground">
+                      #{String(s.seq).padStart(2, "0")}
+                    </span>
+                    <Play className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                  <a
+                    href={s.url}
+                    download={buildFileName(s.seq)}
+                    className="ml-2 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    title="下载本段 WAV"
+                  >
+                    <Download className="h-3 w-3" />
+                  </a>
+                </div>
               ))}
             </div>
           </CardContent>

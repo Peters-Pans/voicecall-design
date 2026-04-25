@@ -14,6 +14,7 @@ export default function LoginPage() {
   const setAuth = useAuth((s) => s.setAuth)
   const [username, setUsername] = useState("")
   const [token, setToken] = useState("")
+  const [remember, setRemember] = useState(false)
   const [loading, setLoading] = useState(false)
 
   async function handleSubmit(e: FormEvent) {
@@ -34,7 +35,7 @@ export default function LoginPage() {
         throw new APIError(`服务器响应异常 (HTTP ${res.status})`, res.status)
       }
       const me = (await res.json()) as { username?: string }
-      setAuth(token.trim(), me.username ?? username.trim())
+      setAuth(token.trim(), me.username ?? username.trim(), remember)
       toast.success(`欢迎回来，${me.username ?? username.trim()}`)
       navigate("/voices", { replace: true })
     } catch (err) {
@@ -91,6 +92,19 @@ export default function LoginPage() {
               令牌由管理员发放，仅显示一次，请妥善保存
             </p>
           </div>
+
+          <label className="flex cursor-pointer items-center gap-2 select-none">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
+              disabled={loading}
+              className="h-4 w-4 rounded border-input text-primary focus:ring-2 focus:ring-ring focus:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50"
+            />
+            <span className="text-sm text-muted-foreground">
+              保持登录 180 天（仅限个人设备）
+            </span>
+          </label>
 
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "验证中..." : "登录"}

@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { meAPI } from "@/lib/api"
 import { useAuth } from "@/stores/auth"
+import { useSessionRefresh } from "@/hooks/useSessionRefresh"
 import { cn } from "@/lib/utils"
 
 type NavItem = {
@@ -42,9 +43,7 @@ const BASE_NAV_ITEMS: NavItem[] = [
     to: "/call",
     label: "语音通话",
     icon: Mic2,
-    badge: "即将上线",
-    disabled: true,
-    disabledHint: "Phase 4 路线图：WebRTC + Pipecat 接入完成后启用",
+    badge: "Beta",
   },
 ]
 
@@ -59,6 +58,8 @@ export default function AppLayout() {
   const qc = useQueryClient()
   const { username, clear } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  useSessionRefresh()
 
   const { data: me } = useQuery({
     queryKey: ["me"],
