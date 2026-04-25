@@ -181,9 +181,15 @@ export type CallAnswerResponse = {
   pc_id: string
 }
 
+export type CallIceCandidate = {
+  candidate: string
+  sdp_mid: string
+  sdp_mline_index: number
+}
+
 export type CallIcePayload = {
-  candidate: RTCIceCandidateInit
   pc_id: string
+  candidates: CallIceCandidate[]
 }
 
 export const callAPI = {

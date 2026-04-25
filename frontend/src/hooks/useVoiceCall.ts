@@ -148,10 +148,17 @@ export function useVoiceCall(): UseVoiceCallReturn {
 
         pc.onicecandidate = async (event) => {
           if (!event.candidate || !pcIdRef.current) return
+          const c = event.candidate
           try {
             await callAPI.sendIce({
-              candidate: event.candidate.toJSON(),
               pc_id: pcIdRef.current,
+              candidates: [
+                {
+                  candidate: c.candidate,
+                  sdp_mid: c.sdpMid ?? "",
+                  sdp_mline_index: c.sdpMLineIndex ?? 0,
+                },
+              ],
             })
           } catch {
             // 后端已保证幂等，丢一次 candidate 不致命
